@@ -8,5 +8,7 @@ import java.math.BigDecimal;
 
 public record CreateOrderRequest(
     @NotBlank String createdBy,
-    @NotNull @DecimalMin("0.01") BigDecimal amount
+    @NotNull @DecimalMin("0.01") BigDecimal amount,
+    @NotBlank String definitionKey // e.g., "simple_order_v1"
+
 ) {}

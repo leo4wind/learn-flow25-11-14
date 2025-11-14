@@ -3,6 +3,8 @@ package com.leo.demo3.service;
 import com.leo.demo3.model.Order;
 import com.leo.demo3.model.OrderStatus;
 import com.leo.demo3.model.WorkflowTask;
+import com.leo.demo3.model.definition.ProcessDefinition;
+import com.leo.demo3.model.definition.ProcessStep;
 import com.leo.demo3.repository.OrderRepository;
 import com.leo.demo3.repository.WorkflowTaskRepository;
 import org.springframework.stereotype.Service;
@@ -15,10 +17,15 @@ public class TaskService {
 
     private final OrderRepository orderRepository;
     private final WorkflowTaskRepository taskRepository;
+    private final WorkflowDefinitionService definitionService; // 新增
+    private final WorkflowEngineService engineService;       // 新增
 
-    public TaskService(OrderRepository orderRepository, WorkflowTaskRepository taskRepository) {
+    public TaskService(OrderRepository orderRepository, WorkflowTaskRepository taskRepository,
+                       WorkflowDefinitionService definitionService, WorkflowEngineService engineService) {
         this.orderRepository = orderRepository;
         this.taskRepository = taskRepository;
+        this.definitionService = definitionService;
+        this.engineService = engineService;
     }
 
     /**
@@ -32,10 +39,10 @@ public class TaskService {
      * 接口：完成任务 (审核)，工作流核心推进逻辑
      */
     @Transactional
-    public Order completeTask(Long taskId, String reviewer, boolean isApproved) {
+    public Order completeTask(Long taskId, String reviewer, String action) {
         // 1. 查找并验证任务
         var task = taskRepository.findById(taskId)
-            .orElseThrow(() -> new RuntimeException("任务不存在"));
+                .orElseThrow(() -> new RuntimeException("任务不存在"));
 
         if (!"OPEN".equals(task.getStatus())) {
             throw new RuntimeException("任务 " + taskId + " 已被处理。");
@@ -43,28 +50,34 @@ public class TaskService {
 
         // 2. 查找关联的订单
         var order = orderRepository.findByOrderKey(task.getBusinessKey())
-            .orElseThrow(() -> new RuntimeException("关联订单不存在"));
+                .orElseThrow(() -> new RuntimeException("关联订单不存在"));
 
-        // 3. 核心流程控制：检查状态和任务是否匹配
-        if (!order.isPendingApproval()) {
-            throw new RuntimeException("订单状态异常 (" + order.getStatus() + ")，无法完成审核。");
+        // 3. 加载流程定义
+        ProcessDefinition definition = definitionService.getDefinition(order.getDefinitionKey());
+
+        // 4. 验证当前步骤是否匹配
+        String currentStepId = order.getCurrentStepId();
+        if (!currentStepId.equals(task.getTaskDefinitionKey())) {
+            throw new RuntimeException("流程异常：任务与订单步骤不匹配。");
         }
 
-        // 4. 执行订单状态扭转 (Order 状态)
-        if (isApproved) {
-            order.setStatus(OrderStatus.APPROVED);
-        } else {
-            order.setStatus(OrderStatus.REJECTED);
+        // 5. 查找当前步骤并获取下一步
+        ProcessStep currentStep = definition.getStep(currentStepId);
+        String nextStepId = currentStep.getNextStepId(action);
+        if (nextStepId == null) {
+            throw new RuntimeException("流程错误：未知的操作 " + action);
         }
-        orderRepository.save(order);
 
-        // 5. 标记任务完成 (Task 状态)
+        // 6. 标记当前任务完成
         task.setStatus("COMPLETED");
         task.setAssigneeUser(reviewer);
         task.setCompletedAt(LocalDateTime.now());
         taskRepository.save(task);
+        System.out.println("【任务完成】任务 " + taskId + " ("+currentStep.displayName()+") 完成。");
 
-        System.out.println("【任务完成】任务 " + taskId + " 完成。");
-        return order;
+        // 7. 委托给引擎推进到下一步
+        engineService.advanceTo(order, nextStepId);
+
+        return orderRepository.findByOrderKey(order.getOrderKey()).get(); // 返回最新状态的订单
     }
 }

@@ -1,0 +1,67 @@
+@host = http://localhost:8080
+
+### 1. [启动流程] 创建订单 (使用 manager_approval_v1 流程)
+# 预期结果：订单状态为 PENDING_APPROVAL。自动提取 orderKey。
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "createdBy": "alice",
+  "amount": 200.00,
+  "definitionKey": "manager_approval_v1"
+}
+
+> {%
+    client.global.set("orderKey", response.body.orderKey);
+    client.log("--- 1. OrderKey Extracted: " + client.global.get("orderKey"));
+    client.log("   Status: " + response.body.status + " (Expected PENDING_APPROVAL)");
+%}
+
+### 2. [任务查询] 经理查询待办列表
+# 预期结果：找到一个 OPEN 任务。自动提取 taskId。
+GET {{host}}/api/tasks?role=manager
+
+> {%
+    var tasks = response.body;
+    if (tasks && tasks.length > 0) {
+        // 假设列表第一个就是当前任务
+        client.global.set("taskId", tasks[0].id);
+        client.log("--- 2. TaskId Extracted: " + client.global.get("taskId"));
+    } else {
+        client.log("ERROR: No open tasks found!");
+    }
+%}
+
+### 3. [任务处理] 经理完成审核 (批准)
+# 使用提取到的 taskId。预期结果：订单状态变为 APPROVED。
+POST {{host}}/api/tasks/complete
+Content-Type: application/json
+
+{
+  "taskId": {{taskId}},
+  "reviewer": "bob_manager",
+  "action": "approve"
+}
+
+> {%
+    client.log("--- 3. Task Completed. New Order Status: " + response.body.status);
+    client.assert(response.body.status === 'APPROVED', "Status failed to change to APPROVED.");
+%}
+
+### 4. [业务推进] 支付订单
+# 使用提取到的 orderKey。预期结果：订单状态变为 PAID。
+POST {{host}}/api/orders/{{orderKey}}/pay
+Content-Type: application/json
+
+> {%
+    client.log("--- 4. Payment Completed. Final Status: " + response.body.status);
+%}
+
+### 5. [最终验证] 检查最终状态
+# 验证最终状态是否为 PAID。
+GET {{host}}/api/orders/{{orderKey}}
+
+> {%
+    client.log("--- 5. Final Check Status: " + response.body.status);
+    client.assert(response.body.status === 'PAID', "Final status check failed! Expected PAID.");
+%}

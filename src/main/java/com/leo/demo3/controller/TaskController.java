@@ -29,12 +29,16 @@ public class TaskController {
 
     // POST /api/tasks/complete: 完成任务 (执行审核)
     @PostMapping("/complete")
-    public ResponseEntity<Order> completeTask(@Valid @RequestBody ReviewTaskRequest request) {
+    public ResponseEntity<?> completeTask(@Valid @RequestBody ReviewTaskRequest request) {
         try {
-            var order = taskService.completeTask(request.taskId(), request.reviewer(), request.isApproved());
+            var order = taskService.completeTask(
+                    request.taskId(),
+                    request.reviewer(),
+                    request.action() // 传递 action
+            );
             return ResponseEntity.ok(order);
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
 }

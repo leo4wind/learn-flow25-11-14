@@ -15,35 +15,29 @@ import java.util.UUID;
 public class OrderWorkflowService {
 
     private final OrderRepository orderRepository;
-    private final WorkflowTaskRepository taskRepository;
+    private final WorkflowEngineService engineService; // 注入新的引擎服务
 
-    public OrderWorkflowService(OrderRepository orderRepository, WorkflowTaskRepository taskRepository) {
+    public OrderWorkflowService(OrderRepository orderRepository, WorkflowEngineService engineService) {
         this.orderRepository = orderRepository;
-        this.taskRepository = taskRepository;
+        this.engineService = engineService;
     }
 
     /**
      * 接口1：创建订单 (流程启动)
      */
     @Transactional
-    public Order createOrder(BigDecimal amount, String createdBy) {
+    public Order createOrder(BigDecimal amount, String createdBy, String definitionKey) {
         String orderKey = UUID.randomUUID().toString().substring(0, 8);
 
         // 1. 创建订单实例
-        var order = new Order(orderKey, amount, createdBy);
+        var order = new Order(orderKey, amount, createdBy,definitionKey);
         orderRepository.save(order);
 
-        // 2. 关键：创建待办任务
-        var task = new WorkflowTask(
-            orderKey,
-            "manager_approval",
-            "订单 (" + orderKey + ") 经理审核",
-            "manager"
-        );
-        taskRepository.save(task);
+        // 2. 委托给流程引擎启动流程
+        engineService.startProcess(order);
 
-        System.out.println("【流程启动】订单 " + orderKey + " 已创建，并创建了任务 " + task.getId());
-        return order;
+        // 返回保存后的订单（状态可能已更新）
+        return orderRepository.findByOrderKey(orderKey).get();
     }
 
     /**

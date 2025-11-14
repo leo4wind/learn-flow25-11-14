@@ -1,0 +1,96 @@
+@host = http://localhost:8080
+
+### 1. [流程启动] 创建订单 (使用 manager_finance_approval_v1 流程)
+# 预期状态：PENDING_MANAGER_APPROVAL。自动提取 orderKey。
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "createdBy": "alice",
+  "amount": 500.00,
+  "definitionKey": "manager_finance_approval_v1"
+}
+
+> {%
+    client.global.set("orderKey", response.body.orderKey);
+    client.log("--- 1. OrderKey Extracted: " + client.global.get("orderKey"));
+    client.log("   Status: " + response.body.status + " (Expected PENDING_MANAGER_APPROVAL)");
+%}
+
+### 2. [任务查询 1] 经理查询待办
+# 预期结果：找到第一个 OPEN 任务 (经理审核)。自动提取 taskId。
+GET {{host}}/api/tasks?role=manager
+
+> {%
+    var tasks = response.body;
+    if (tasks && tasks.length > 0) {
+        client.global.set("taskId", tasks[0].id);
+        client.log("--- 2. Manager TaskId Extracted: " + client.global.get("taskId"));
+    } else {
+        client.log("ERROR: Manager task not found!");
+    }
+%}
+
+### 3. [任务处理 1] 经理完成审核 (批准)
+# 预期结果：订单状态变为 PENDING_FINANCE_REVIEW。
+POST {{host}}/api/tasks/complete
+Content-Type: application/json
+
+{
+  "taskId": {{taskId}},
+  "reviewer": "bob_manager",
+  "action": "approve"
+}
+
+> {%
+    client.log("--- 3. Manager Approval Done. New Status: " + response.body.status);
+    client.assert(response.body.status === 'PENDING_FINANCE_REVIEW', "Status failed to change to PENDING_FINANCE_REVIEW.");
+%}
+
+### 4. [任务查询 2] 财务查询待办
+# 预期结果：找到第二个 OPEN 任务 (财务审核)。自动提取新的 taskId。
+GET {{host}}/api/tasks?role=finance
+
+> {%
+    var tasks = response.body;
+    if (tasks && tasks.length > 0) {
+        client.global.set("taskId", tasks[0].id);
+        client.log("--- 4. Finance TaskId Extracted: " + client.global.get("taskId"));
+    } else {
+        client.log("ERROR: Finance task not found!");
+    }
+%}
+
+### 5. [任务处理 2] 财务完成审核 (批准)
+# 预期结果：订单状态变为 APPROVED。
+POST {{host}}/api/tasks/complete
+Content-Type: application/json
+
+{
+  "taskId": {{taskId}},
+  "reviewer": "charlie_finance",
+  "action": "approve"
+}
+
+> {%
+    client.log("--- 5. Finance Approval Done. New Status: " + response.body.status);
+    client.assert(response.body.status === 'APPROVED', "Status failed to change to APPROVED.");
+%}
+
+### 6. [业务推进] 支付订单
+# 订单已是 APPROVED 状态，支付接口应允许执行。预期结果：订单状态变为 PAID。
+POST {{host}}/api/orders/{{orderKey}}/pay
+Content-Type: application/json
+
+> {%
+    client.log("--- 6. Payment Completed. Final Status: " + response.body.status);
+%}
+
+### 7. [最终验证] 检查最终状态
+# 验证最终状态是否为 PAID。
+GET {{host}}/api/orders/{{orderKey}}
+
+> {%
+    client.log("--- 7. Final Check Status: " + response.body.status);
+    client.assert(response.body.status === 'PAID', "Final status check failed! Expected PAID.");
+%}

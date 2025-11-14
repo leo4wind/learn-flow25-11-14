@@ -1,0 +1,44 @@
+@host = http://localhost:8080
+
+### 1. [启动流程] 创建订单 (使用 no_approval_v1 流程)
+# 预期结果：订单状态立即变为 APPROVED
+
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "createdBy": "alice",
+  "amount": 50.00,
+  "definitionKey": "no_approval_v1"
+}
+
+> {%
+    client.global.set("orderKey", response.body.orderKey);
+    client.log("提取到 OrderKey: " + client.global.get("orderKey"));
+    client.log("订单状态 (预期 APPROVED): " + response.body.status);
+%}
+
+### 2. [流程验证] 检查订单状态 (应为 APPROVED)
+# 验证订单状态是否跳过了PENDING直接到了最终状态
+
+GET {{host}}/api/orders/{{orderKey}}
+
+> {%
+    client.log("订单当前状态: " + response.body.status);
+    client.assert(response.body.status === 'APPROVED', "订单状态校验失败！预期状态为 APPROVED。");
+%}
+
+### 3. [业务推进] 支付订单 (必须成功)
+# 订单已是 APPROVED 状态，支付接口应允许执行
+
+POST {{host}}/api/orders/{{orderKey}}/pay
+Content-Type: application/json
+
+### 4. [最终验证] 检查最终状态 (应为 PAID)
+
+GET {{host}}/api/orders/{{orderKey}}
+
+> {%
+    client.log("订单最终状态: " + response.body.status);
+    client.assert(response.body.status === 'PAID', "最终状态校验失败！预期状态为 PAID。");
+%}

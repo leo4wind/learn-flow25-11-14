@@ -21,7 +21,11 @@ public class OrderController {
     // POST /api/orders: 创建订单，启动工作流
     @PostMapping
     public ResponseEntity<Order> createOrder(@Valid @RequestBody CreateOrderRequest request) {
-        var order = workflowService.createOrder(request.amount(), request.createdBy());
+        var order = workflowService.createOrder(
+                request.amount(),
+                request.createdBy(),
+                request.definitionKey() // 传递 definitionKey
+        );
         return ResponseEntity.ok(order);
     }
 

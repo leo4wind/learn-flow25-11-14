@@ -20,14 +20,18 @@ public class Order {
 
     private String createdBy;
     private LocalDateTime createdAt = LocalDateTime.now();
+    private String definitionKey; // 关联的流程定义 Key (e.g., "simple_order_v1")
+    private String currentStepId; // 当前所处的流程步骤 ID (e.g., "manager_review")
+
 
     // Constructors
     public Order() {}
-    public Order(String orderKey, BigDecimal amount, String createdBy) {
+    public Order(String orderKey, BigDecimal amount, String createdBy, String definitionKey) {
         this.orderKey = orderKey;
         this.amount = amount;
         this.createdBy = createdBy;
         this.status = OrderStatus.PENDING_APPROVAL;
+        this.definitionKey = definitionKey;
     }
 
     // 状态检查方法
@@ -47,4 +51,8 @@ public class Order {
     public void setAmount(BigDecimal amount) { this.amount = amount; }
     public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public String getDefinitionKey() { return definitionKey; }
+    public void setDefinitionKey(String definitionKey) { this.definitionKey = definitionKey; }
+    public String getCurrentStepId() { return currentStepId; }
+    public void setCurrentStepId(String currentStepId) { this.currentStepId = currentStepId; }
 }
