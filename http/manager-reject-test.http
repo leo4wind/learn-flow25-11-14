@@ -1,0 +1,69 @@
+@host = http://localhost:8080
+
+### 1. [流程启动] 创建订单 (使用 manager_approval_v1 流程)
+# 预期状态：PENDING_APPROVAL。自动提取 orderKey。
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "createdBy": "alice",
+  "amount": 250.00,
+  "definitionKey": "manager_approval_v1"
+}
+
+> {%
+    client.global.set("orderKey", response.body.orderKey);
+    client.log("--- 1. OrderKey Extracted: " + client.global.get("orderKey"));
+    client.log("   Status: " + response.body.status + " (Expected PENDING_APPROVAL)");
+%}
+
+### 2. [任务查询] 经理查询待办列表
+# 预期结果：找到一个 OPEN 任务。自动提取 taskId。
+GET {{host}}/api/tasks?role=manager
+
+> {%
+    var tasks = response.body;
+    if (tasks && tasks.length > 0) {
+        client.global.set("taskId", tasks[0].id);
+        client.log("--- 2. Manager TaskId Extracted: " + client.global.get("taskId"));
+    } else {
+        client.log("ERROR: No open tasks found!");
+    }
+%}
+
+### 3. [任务处理] 经理完成审核 (拒绝)
+# **关键步骤：action 设置为 "reject"**。预期结果：订单状态变为 REJECTED。
+POST {{host}}/api/tasks/complete
+Content-Type: application/json
+
+{
+  "taskId": {{taskId}},
+  "reviewer": "bob_manager",
+  "action": "reject"
+}
+
+> {%
+    client.log("--- 3. Task Rejected. New Order Status: " + response.body.status);
+    client.assert(response.body.status === 'REJECTED', "Status failed to change to REJECTED.");
+%}
+
+### 4. [业务推进] 尝试支付订单
+# 预期结果：**失败 (400 Bad Request)**，因为订单状态是 REJECTED。
+POST {{host}}/api/orders/{{orderKey}}/pay
+Content-Type: application/json
+
+> {%
+    client.log("--- 4. Attempted Payment.");
+    // 验证状态码为 400
+    client.assert(response.status === 400, "Expected 400 Bad Request, but received " + response.status);
+    client.log("   Received Error: " + response.body);
+%}
+
+### 5. [最终验证] 检查最终状态
+# 验证最终状态仍为 REJECTED。
+GET {{host}}/api/orders/{{orderKey}}
+
+> {%
+    client.log("--- 5. Final Check Status: " + response.body.status);
+    client.assert(response.body.status === 'REJECTED', "Final status check failed! Expected REJECTED.");
+%}
